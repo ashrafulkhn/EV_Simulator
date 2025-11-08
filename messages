@@ -1,0 +1,15 @@
+{"kind":"evConnectionState","payload":{"evConnectionState":"connected"},"type":"info"}
+{"kind":"error","payload":{"errorCategory":"value","errorDetails":"PEP Validation failed: Unknown kind"},"sequenceNumber":0,"type":"error"}
+{"kind":"error","payload":{"errorCategory":"value","errorDetails":"PEP Validation failed: Unknown kind"},"sequenceNumber":0,"type":"error"}
+{"kind":"evConnectionState","payload":{"evConnectionState":"connected","vehicleId":"fca47a148ee4"},"type":"info"}
+{"kind":"chargingSession","payload":{"evMaxCurrentAmperes":217.8,"evMaxVoltageVolts":450.0,"evMinCurrentAmperes":0.0,"evMinPowerWatts":0.0,"evMinVoltageVolts":0.0},"type":"info"}
+{"kind":"chargingSession","payload":{"chargingProfileMaxPowerLimitWatts":22000.0},"type":"info"}
+{"kind":"chargingSession","payload":{"chargeMode":"scheduled"},"type":"info"}
+{"kind":"contactorsStatus","payload":{"contactorsStatus":"closed"},"sequenceNumber":1227,"type":"request"}
+{"kind":"cableCheck","payload":{"voltage":450.0},"sequenceNumber":1228,"type":"request"}
+{"kind":"evConnectionState","payload":{"evConnectionState":"energyTransferAllowed"},"type":"info"}
+{"kind":"targetValues","payload":{"batteryStateOfCharge":10.0,"chargingState":"preCharge","targetCurrent":1.8,"targetVoltage":402.2},"sequenceNumber":1230,"type":"request"}
+{"kind":"targetValues","payload":{"batteryStateOfCharge":10.0,"chargingState":"preCharge","targetCurrent":1.8,"targetVoltage":402.2},"sequenceNumber":1231,"type":"request"}
+{"kind":"stopCharging","payload":{},"sequenceNumber":0,"type":"reqquest"}
+{"kind":"reset","payload":{},"sequenceNumber":1226,"type":"request"}
+{"kind":"evConnectionState","payload":{"evConnectionState":"disconnected"},"type":"info"}

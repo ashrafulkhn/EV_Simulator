@@ -1,0 +1,51 @@
+I want to create a tkinter based application. with the following features.
+- When the Application run give a window provide Websocket URI. And give a connect button to connect to Websocket server. Once connected show the 2nd screen where I can have multiple options.
+Say:
+1. Button: Connect Gun
+On press the below message should be sent and "Disconnect Gun" shoudl be written. On pressing again it should send the disconnect message as below and text as "Connect Gun" button.
+Connect Messgae in JSON format - {"kind":"evConnectionState","payload":{"evConnectionState":"connected"},"type":"info"}
+Disconnect Messgae in JSON format - {"kind":"evConnectionState","payload":{"evConnectionState":"disconnected"},"type":"info"}
+
+2. Give a form to fill the following information:
+- evMaxCurrentAmperes":217.8,
+"evMaxVoltageVolts":450.0,
+"evMinCurrentAmperes":0.0,
+"evMinPowerWatts":0.0,
+"evMinVoltageVolts":0.0
+chargingProfileMaxPowerLimitWatts":22000.0
+"Cable check voltage":450.0
+batteryStateOfCharge":10.0
+"targetCurrent":1.8,"targetVoltage":402.2
+
+3. Below the button add a "Send Vehicle Info" Button and if the button is pressed then send the below message on pressing this button. Send each line on each press. send the data in the same format. But with the data in the form.
+{"kind":"evConnectionState","payload":{"evConnectionState":"connected","vehicleId":"fca47a148ee4"},"type":"info"}
+{"kind":"chargingSession","payload":{"evMaxCurrentAmperes":217.8,"evMaxVoltageVolts":450.0,"evMinCurrentAmperes":0.0,"evMinPowerWatts":0.0,"evMinVoltageVolts":0.0},"type":"info"}
+{"kind":"chargingSession","payload":{"chargingProfileMaxPowerLimitWatts":22000.0},"type":"info"}
+{"kind":"chargingSession","payload":{"chargeMode":"scheduled"},"type":"info"}
+{"kind":"contactorsStatus","payload":{"contactorsStatus":"closed"},"sequenceNumber":1227,"type":"request"}
+
+4. Give a button with Cable check. TAke the data from the form. If pressed multiple time, send the data in the same format. But with the data in the form.
+{"kind":"cableCheck","payload":{"voltage":450.0},"sequenceNumber":1228,"type":"request"}
+
+5. Button for : "Transfer Allowed"
+{"kind":"evConnectionState","payload":{"evConnectionState":"energyTransferAllowed"},"type":"info"}
+
+6. Button for precharge: "Start Precharge", Take data from the form each time I press the button.
+{"kind":"targetValues","payload":{"batteryStateOfCharge":10.0,"chargingState":"charging","targetCurrent":1.8,"targetVoltage":402.2},"sequenceNumber":1230,"type":"request"}
+
+7. Charge Button: 
+{"kind":"targetValues","payload":{"batteryStateOfCharge":10.0,"chargingState":"preCharge","targetCurrent":1.8,"targetVoltage":402.2},"sequenceNumber":1230,"type":"request"}
+
+8. Stop Charging Button: "Stop Charging"
+{"kind":"stopCharging","payload":{},"sequenceNumber":0,"type":"response"}
+
+9. Reset Button: 
+{"kind":"reset","payload":{},"sequenceNumber":1226,"type":"request"}
+
+10. At the bottom of the page, keep a frame to shouw the messgae sent by the server to this application. You can show it like a raw messages like a log.
+Say: Sent Messgae are shown With a starting symbol >>>>> {messgae}
+Recieved messgae are shown as <<<<< {message}
+This should have a scrolbar to navigae to previous logs.
+
+11. You may adapt the screen size and should be able resize. USe good design. Keep modular coding structure. Keep a Separate Style and colour  as theme.
+Use good light vibrant colour.
