@@ -116,7 +116,7 @@ class EVSimulatorApp:
         form_data = self.main_screen.get_form_data()
         message = self.message_handler.create_target_values({
             "batteryStateOfCharge": form_data.get('batteryStateOfCharge', 45),
-            "chargingState": "charging",
+            "chargingState": "preCharge",
             "targetCurrent": form_data.get('targetCurrent', 10),
             "targetVoltage": form_data.get('targetVoltage', 400)
         })
@@ -126,7 +126,7 @@ class EVSimulatorApp:
         form_data = self.main_screen.get_form_data()
         message = self.message_handler.create_target_values({
             "batteryStateOfCharge": form_data.get('batteryStateOfCharge', 78.0),
-            "chargingState": "preCharge",
+            "chargingState": "charging",
             "targetCurrent": form_data.get('targetCurrent', 60),
             "targetVoltage": form_data.get('targetVoltage', 500)
         })

@@ -58,7 +58,7 @@ BUTTON_PALETTE = {
 }
 
 # WebSocket Settings
-DEFAULT_WS_URI = "ws://192.168.3.110:8765/GUN4" # This is the default URI for the websocket server. This is running on my machine.
+DEFAULT_WS_URI = "ws://192.168.3.180:8765/GUN4" # This is the default URI for the websocket server. This is running on my machine.
 CONNECTION_TIMEOUT = 10
 RECONNECT_ATTEMPTS = 3
 
@@ -68,16 +68,16 @@ DEFAULT_SEQUENCE_NUMBER = 1226
 
 # Form Default Values
 DEFAULT_FORM_VALUES = {
-    'evMaxCurrentAmperes': 217.8,
-    'evMaxVoltageVolts': 450.0,
+    'evMaxCurrentAmperes': 300.8,
+    'evMaxVoltageVolts': 672.0,
     'evMinCurrentAmperes': 0.0,
     'evMinPowerWatts': 0.0,
     'evMinVoltageVolts': 0.0,
-    'chargingProfileMaxPowerLimitWatts': 22000.0,
-    'cableCheckVoltage': 450.0,
+    'chargingProfileMaxPowerLimitWatts': 180000.0,
+    'cableCheckVoltage': 650.0,
     'batteryStateOfCharge': 10.0,
-    'targetCurrent': 1.8,
-    'targetVoltage': 402.2
+    'targetCurrent': 60.0,
+    'targetVoltage': 500.0
 }
 
 # UI Layout Constants
