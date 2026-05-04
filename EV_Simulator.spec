@@ -35,5 +35,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets\\app_logo.ico'],
+    onefile=True,
+    icon=['assets/app_logo.ico'],
 )
