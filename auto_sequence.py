@@ -110,21 +110,25 @@ class AutoSequence:
             self._log(f"send failed: {e}")
             return False
 
+    async def _send_termination_messages(self):
+        """stopCharging -> reset -> disconnect gun, with small pauses between."""
+        await self._send(self.mh.create_stop_charging())
+        await asyncio.sleep(0.2)
+        await self._send(self.mh.create_reset())
+        await asyncio.sleep(0.2)
+        await self._send(self.mh.create_ev_connection_state("disconnected"))
+
     async def _send_stop_and_reset(self, user_initiated: bool = False):
         if user_initiated:
             self._set_stage(Stage.STOPPING)
             self._log("Stop requested by user")
-        await self._send(self.mh.create_stop_charging())
-        await asyncio.sleep(0.2)
-        await self._send(self.mh.create_reset())
+        await self._send_termination_messages()
         if user_initiated:
             self._set_stage(Stage.IDLE)
 
     async def _fail(self, reason: str):
         self._log(f"Sequence FAILED: {reason}")
-        await self._send(self.mh.create_stop_charging())
-        await asyncio.sleep(0.2)
-        await self._send(self.mh.create_reset())
+        await self._send_termination_messages()
         self._set_stage(Stage.FAILED)
 
     def _check_stop(self) -> bool:
