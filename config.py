@@ -4,7 +4,7 @@ Configuration constants and settings for EV Simulator
 
 # Application Settings
 APP_TITLE = "EV Simulator"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 WINDOW_WIDTH = 1200
 WINDOW_HEIGHT = 800
 MIN_WINDOW_WIDTH = 800
@@ -58,7 +58,7 @@ BUTTON_PALETTE = {
 }
 
 # WebSocket Settings
-DEFAULT_WS_URI = "ws://192.168.3.180:8765/GUN4" # This is the default URI for the websocket server. This is running on my machine.
+DEFAULT_WS_URI = "ws://192.168.3.180:8765/GUN2" # This is the default URI for the websocket server. This is running on my machine.
 CONNECTION_TIMEOUT = 10
 RECONNECT_ATTEMPTS = 3
 
@@ -68,16 +68,18 @@ DEFAULT_SEQUENCE_NUMBER = 1226
 
 # Form Default Values
 DEFAULT_FORM_VALUES = {
-    'evMaxCurrentAmperes': 300.8,
-    'evMaxVoltageVolts': 672.0,
+    'evMaxCurrentAmperes': 500.0,
+    'evMaxVoltageVolts': 650,
     'evMinCurrentAmperes': 0.0,
     'evMinPowerWatts': 0.0,
     'evMinVoltageVolts': 0.0,
     'chargingProfileMaxPowerLimitWatts': 180000.0,
     'cableCheckVoltage': 650.0,
     'batteryStateOfCharge': 10.0,
-    'targetCurrent': 60.0,
-    'targetVoltage': 500.0
+    'prechargeTargetCurrent': 10.0,
+    'prechargeTargetVoltage': 400.0,
+    'chargeTargetCurrent': 60.0,
+    'chargeTargetVoltage': 500.0,
 }
 
 # UI Layout Constants
@@ -85,3 +87,34 @@ PADDING = 10
 BUTTON_HEIGHT = 30
 INPUT_HEIGHT = 25
 LOG_HEIGHT = 200
+
+# Automatic test defaults
+AUTO_DEFAULTS = {
+    "post_gun_wait": 5.0,
+    "post_transfer_wait": 3.0,
+    "vehicle_info_interval": 0.50,
+    "cable_check_interval": 0.25,
+    "precharge_interval": 2,
+    "charge_interval": 2,
+    "max_retries": 30,
+    "precharge_voltage_pct": 90.0,
+    "precharge_current_pct": 90.0,
+    "charge_voltage_pct": 80.0,
+    "charge_current_pct": 80.0,
+    "precharge_track_current": False,
+    "charge_track_current": False,
+}
+
+# Stage colors for the Automatic tab status pill (hex)
+STAGE_COLORS = {
+    "Idle":                 "#94a3b8",
+    "Gun Connect":          "#4f46e5",
+    "Vehicle Info":         "#4f46e5",
+    "Transfer Allowed":     "#4f46e5",
+    "Cable Check":          "#06b6d4",
+    "Precharge":            "#f59e0b",
+    "Charge":               "#f59e0b",
+    "Charging (streaming)": "#10b981",
+    "Stopping":             "#64748b",
+    "FAILED":               "#f43f5e",
+}

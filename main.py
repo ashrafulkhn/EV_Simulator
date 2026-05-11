@@ -8,16 +8,19 @@ via a thread-safe queue.
 """
 
 import asyncio
+import json
 import threading
 import logging
 import queue
 import tkinter as tk
 from typing import Optional
 
-from config import APP_TITLE
+from config import APP_TITLE, WINDOW_WIDTH, WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT
 from websocket_handler import WebSocketHandler
 from message_handler import MessageHandler
 from ui_components import UIConnectionScreen, UIMainScreen
+from auto_sequence import AutoSequence
+from theme import apply_theme
 
 class EVSimulatorApp:
     """Main EV Simulator Application (Tkinter)"""
@@ -28,16 +31,19 @@ class EVSimulatorApp:
 
         self.root = tk.Tk()
         self.root.title(APP_TITLE)
+        self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+        apply_theme(self.root)
 
         # Thread-safe queue for events from asyncio thread -> Tkinter
         self._event_queue: "queue.Queue[tuple]" = queue.Queue()
 
         # UI
         self.connection_screen = UIConnectionScreen(self.root, self._on_connect_clicked)
-        self.connection_screen.grid(row=0, column=0, sticky="nwe", padx=6, pady=6)
+        self.connection_screen.grid(row=0, column=0, sticky="nwe", padx=16, pady=(14, 6))
 
         self.main_screen = UIMainScreen(self.root, button_callbacks=self._get_button_callbacks(), log_callback=self._add_log_message)
-        self.main_screen.grid(row=1, column=0, sticky="nsew", padx=6, pady=6)
+        self.main_screen.grid(row=1, column=0, sticky="nsew", padx=16, pady=(6, 14))
 
         # Configure root resizing
         self.root.columnconfigure(0, weight=1)
@@ -57,6 +63,16 @@ class EVSimulatorApp:
         # Wire WebSocket callbacks to place events on queue
         self.ws_handler.set_message_callback(lambda m: self._event_queue.put(("message", m)))
         self.ws_handler.set_connection_callback(lambda status: self._event_queue.put(("connection", status)))
+
+        # Auto sequence: callbacks marshal to Tk via the event queue.
+        self.auto_sequence = AutoSequence(
+            ws_handler=self.ws_handler,
+            message_handler=self.message_handler,
+            get_form_data=lambda: self.main_screen.form_data,
+            status_cb=lambda s: self._event_queue.put(("auto_status", s)),
+            log_cb=lambda m: self._event_queue.put(("log", m)),
+        )
+        self.main_screen.set_auto_callbacks(self._on_start_auto, self._on_stop_auto)
 
     def _get_button_callbacks(self):
         return {
@@ -117,8 +133,8 @@ class EVSimulatorApp:
         message = self.message_handler.create_target_values({
             "batteryStateOfCharge": form_data.get('batteryStateOfCharge', 45),
             "chargingState": "preCharge",
-            "targetCurrent": form_data.get('targetCurrent', 10),
-            "targetVoltage": form_data.get('targetVoltage', 400)
+            "targetCurrent": form_data.get('prechargeTargetCurrent', 10),
+            "targetVoltage": form_data.get('prechargeTargetVoltage', 400)
         })
         self._send_message(message)
 
@@ -127,8 +143,8 @@ class EVSimulatorApp:
         message = self.message_handler.create_target_values({
             "batteryStateOfCharge": form_data.get('batteryStateOfCharge', 78.0),
             "chargingState": "charging",
-            "targetCurrent": form_data.get('targetCurrent', 60),
-            "targetVoltage": form_data.get('targetVoltage', 500)
+            "targetCurrent": form_data.get('chargeTargetCurrent', 60),
+            "targetVoltage": form_data.get('chargeTargetVoltage', 500)
         })
         self._send_message(message)
 
@@ -140,6 +156,24 @@ class EVSimulatorApp:
         message = self.message_handler.create_reset()
         self._send_message(message)
 
+    def _on_start_auto(self):
+        if not self.ws_handler.is_connected():
+            self._add_log_message("ERROR: Connect to the WebSocket before starting Auto")
+            return
+        if self.auto_sequence.is_running():
+            return
+        # Refresh form data from Tk vars on the main thread so the sequence
+        # reads from a thread-safe snapshot.
+        self.main_screen.get_form_data()
+        cfg = self.main_screen.get_auto_config()
+        if self.loop:
+            self.auto_sequence.start(self.loop, cfg)
+            self.main_screen.set_auto_running(True)
+
+    def _on_stop_auto(self):
+        if self.loop and self.auto_sequence.is_running():
+            self.auto_sequence.stop(self.loop)
+
     def _send_message(self, message: dict):
         if self.ws_handler.is_connected():
             if self.loop:
@@ -148,6 +182,16 @@ class EVSimulatorApp:
             self._add_log_message(formatted_message)
         else:
             self._add_log_message("ERROR: Not connected to WebSocket")
+
+    def _dispatch_incoming(self, raw: str):
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(parsed, dict):
+            return
+        if parsed.get("type") == "info" and parsed.get("kind") == "status":
+            self.auto_sequence.on_status(parsed.get("payload") or {})
 
     def _add_log_message(self, message: str):
         # Ensure UI update happens in Tk main thread
@@ -162,14 +206,20 @@ class EVSimulatorApp:
             while True:
                 event, payload = self._event_queue.get_nowait()
                 if event == "message":
-                    # payload is raw message string
                     self._add_log_message(f"<<<<< {payload}")
+                    self._dispatch_incoming(payload)
                 elif event == "connection":
                     connected = bool(payload)
-                    # Update connection screen status
                     self.connection_screen.update_connection_status(connected, "")
                     if not connected:
                         self._add_log_message("INFO: Disconnected")
+                elif event == "log":
+                    self._add_log_message(payload)
+                elif event == "auto_status":
+                    self.main_screen.update_auto_status(payload)
+                    stage = payload.get("stage")
+                    if stage in ("Idle", "FAILED"):
+                        self.main_screen.set_auto_running(False)
                 else:
                     self.logger.debug("Unknown event in queue: %s", event)
         except queue.Empty:

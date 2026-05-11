@@ -2,10 +2,10 @@
 
 
 a = Analysis(
-    ['main.py'],
+    ['C:\\Users\\ashra\\Documents\\GitHub\\EV_Simulator\\EV_Simulator\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[('messages', 'messages'), ('prompt.txt', '.'), ('README.md', '.')],
+    datas=[('C:\\Users\\ashra\\Documents\\GitHub\\EV_Simulator\\EV_Simulator\\assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,6 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    onefile=True,
-    icon=['assets/app_logo.ico'],
+    icon=['C:\\Users\\ashra\\Documents\\GitHub\\EV_Simulator\\EV_Simulator\\assets\\image.ico'],
 )
