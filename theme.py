@@ -103,22 +103,30 @@ def apply_theme(root: tk.Tk) -> ttk.Style:
         darkcolor=[("focus", p["primary"])],
     )
 
-    # --- Notebook ---
-    style.configure("TNotebook", background=p["bg"], borderwidth=0, tabmargins=[0, 4, 0, 0])
+    # --- Notebook (pill-style active tab) ---
+    # We freeze padding/font for every state so the selected pill is exactly the
+    # same size as the inactive tabs (clam quietly shrinks the selected tab
+    # otherwise). Font weight stays uniform too — using bold on selected makes
+    # the text widen and the pill ends up looking narrower; instead we lean on
+    # the indigo fill for emphasis.
+    TAB_PAD = [28, 12]
+    style.configure("TNotebook", background=p["bg"], borderwidth=0,
+                    tabmargins=[0, 6, 0, 0])
     style.configure(
         "TNotebook.Tab",
         background=p["bg"],
         foreground=p["text_muted"],
-        padding=[20, 10],
-        font=FONT_BODY,
+        padding=TAB_PAD,
+        font=FONT_BUTTON,
         borderwidth=0,
+        focuscolor=p["bg"],
     )
     style.map(
         "TNotebook.Tab",
-        background=[("selected", p["surface"]), ("active", "#e0e7ff")],
-        foreground=[("selected", p["primary"]), ("active", p["primary"])],
-        font=[("selected", FONT_BUTTON)],
-        expand=[("selected", [1, 1, 1, 0])],
+        background=[("selected", p["primary"]), ("active", "#e0e7ff")],
+        foreground=[("selected", "white"), ("active", p["primary"])],
+        padding=[("selected", TAB_PAD), ("active", TAB_PAD), ("!selected", TAB_PAD)],
+        # No expand mapping -> no vertical shift on press.
     )
 
     # --- Checkbutton ---

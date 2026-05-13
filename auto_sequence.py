@@ -15,8 +15,47 @@ Thread model:
 
 import asyncio
 import logging
+import random
 from enum import Enum
 from typing import Callable, Optional
+
+
+def clamp_and_distort(form_v: float, form_i: float, limits: dict,
+                      distortion_pct: float = 0.0):
+    """Clamp (v, i) against PECC dynamicLimits then optionally distort the
+    current by +/- distortion_pct (random uniform). The distorted current is
+    re-clamped so it can never exceed the PECC's stated limits or go negative.
+
+    Returns (v_send, i_send) as floats.
+    """
+    v = float(form_v)
+    i = float(form_i)
+
+    def _num(x):
+        return x if isinstance(x, (int, float)) else None
+
+    vmax = _num((limits or {}).get("limitVoltageMax"))
+    imax = _num((limits or {}).get("limitCurrentMax"))
+    pmax = _num((limits or {}).get("limitPowerMax"))
+
+    if vmax is not None:
+        v = min(v, float(vmax))
+
+    def _apply_current_caps(value):
+        if imax is not None:
+            value = min(value, float(imax))
+        if pmax is not None and v > 0:
+            value = min(value, float(pmax) / v)
+        return max(value, 0.0)
+
+    i = _apply_current_caps(i)
+
+    if distortion_pct and distortion_pct > 0 and i > 0:
+        delta = i * distortion_pct / 100.0
+        i = random.uniform(i - delta, i + delta)
+        i = _apply_current_caps(i)
+
+    return v, i
 
 
 class Stage(Enum):
@@ -34,28 +73,39 @@ class Stage(Enum):
 
 class AutoSequence:
     def __init__(self, ws_handler, message_handler, get_form_data: Callable[[], dict],
-                 status_cb: Callable[[dict], None], log_cb: Callable[[str], None]):
+                 status_cb: Callable[[dict], None], log_cb: Callable[[str], None],
+                 get_limits: Optional[Callable[[], dict]] = None,
+                 sent_cb: Optional[Callable[[dict], None]] = None,
+                 get_config: Optional[Callable[[], dict]] = None):
         self.ws = ws_handler
         self.mh = message_handler
         self.get_form_data = get_form_data
+        self.get_limits = get_limits or (lambda: {})
+        self.get_config = get_config or (lambda: {})
         self.status_cb = status_cb
         self.log_cb = log_cb
+        self.sent_cb = sent_cb or (lambda _msg: None)
 
         self._future = None
         self._stop_flag = False
-        self._cfg: dict = {}
         self._stage = Stage.IDLE
         self._retries = 0
         self._last_status: dict = {}
         self._logger = logging.getLogger(__name__)
 
-    def start(self, loop: asyncio.AbstractEventLoop, cfg: dict):
+    def start(self, loop: asyncio.AbstractEventLoop):
         if self.is_running():
             return
-        self._cfg = dict(cfg)
         self._stop_flag = False
         self._last_status = {}
         self._future = asyncio.run_coroutine_threadsafe(self._run(), loop)
+
+    def _cfg_get(self, key, default=None):
+        """Read a single config value from the live cache; falls back to default."""
+        try:
+            return self.get_config().get(key, default)
+        except Exception:
+            return default
 
     def stop(self, loop: asyncio.AbstractEventLoop):
         self._stop_flag = True
@@ -105,6 +155,10 @@ class AutoSequence:
         try:
             await self.ws.send_message(message)
             self.log_cb(self.mh.format_message_for_log(message, "sent"))
+            try:
+                self.sent_cb(message)
+            except Exception:
+                pass
             return True
         except Exception as e:
             self._log(f"send failed: {e}")
@@ -143,41 +197,37 @@ class AutoSequence:
 
     async def _run(self):
         try:
-            cfg = self._cfg
             self._log("Auto sequence started")
 
-            # Gun connect
+            # Gun connect (post_gun_wait read once - it's a one-shot)
             self._set_stage(Stage.GUN_CONNECT)
             await self._send(self.mh.create_ev_connection_state("connected"))
-            await asyncio.sleep(cfg["post_gun_wait"])
+            await asyncio.sleep(float(self._cfg_get("post_gun_wait", 5.0)))
             if self._check_stop(): return
 
-            # Vehicle info x5 (built once to share form snapshot across the burst)
+            # Vehicle info x5 - re-read interval each iteration so live edits apply.
             self._set_stage(Stage.VEHICLE_INFO)
             form = self.get_form_data()
             sequence = self.mh.get_vehicle_info_sequence(form)
             for i, msg in enumerate(sequence):
                 self._log(f"Vehicle info {i + 1}/5")
                 await self._send(msg)
-                await asyncio.sleep(cfg["vehicle_info_interval"])
+                await asyncio.sleep(float(self._cfg_get("vehicle_info_interval", 0.5)))
                 if self._check_stop(): return
 
             # Transfer allowed
             self._set_stage(Stage.TRANSFER_ALLOWED)
             await self._send(self.mh.create_ev_connection_state("energyTransferAllowed"))
-            await asyncio.sleep(cfg["post_transfer_wait"])
+            await asyncio.sleep(float(self._cfg_get("post_transfer_wait", 3.0)))
             if self._check_stop(): return
 
-            # Cable check
-            if not await self._cable_check(cfg): return
+            if not await self._cable_check(): return
             if self._check_stop(): return
 
-            # Precharge
-            if not await self._precharge(cfg): return
+            if not await self._precharge(): return
             if self._check_stop(): return
 
-            # Charge ramp + stream until stop
-            await self._charge(cfg)
+            await self._charge()
 
         except asyncio.CancelledError:
             self._log("Auto sequence cancelled")
@@ -185,38 +235,53 @@ class AutoSequence:
             self._logger.exception("AutoSequence crashed")
             await self._fail(f"unexpected error: {e}")
 
-    async def _cable_check(self, cfg) -> bool:
-        max_retries = cfg["max_retries"]
-        interval = cfg["cable_check_interval"]
-        for attempt in range(1, max_retries + 1):
+    async def _cable_check(self) -> bool:
+        attempt = 0
+        while True:
             if self._stop_flag: return False
+            attempt += 1
+            cfg = self.get_config()
+            max_retries = int(cfg.get("max_retries", 20))
+            interval = float(cfg.get("cable_check_interval", 0.25))
+            v_pct = float(cfg.get("cable_check_voltage_pct", 90.0)) / 100.0
+            if attempt > max_retries:
+                await self._fail(f"cable check did not pass after {max_retries} retries")
+                return False
             self._set_stage(Stage.CABLE_CHECK, retries=attempt)
             form = self.get_form_data()
-            voltage = form.get("cableCheckVoltage", 450.0)
-            await self._send(self.mh.create_cable_check(voltage))
+            target_v = float(form.get("cableCheckVoltage", 450.0))
+            await self._send(self.mh.create_cable_check(target_v))
             await asyncio.sleep(interval)
             if self._check_inoperative():
                 await self._fail("PECC reported inoperative during cable check")
                 return False
-            if self._last_status.get("isolationStatus") == "valid":
-                self._log(f"Cable check PASSED on attempt {attempt}")
+            mv = self._last_status.get("measuredVoltage")
+            iso_ok = self._last_status.get("isolationStatus") == "valid"
+            v_ok = isinstance(mv, (int, float)) and mv >= target_v * v_pct
+            if iso_ok and v_ok:
+                self._log(f"Cable check PASSED on attempt {attempt} (V={mv}, isolation=valid)")
                 return True
-        await self._fail(f"cable check did not report isolation valid after {max_retries} retries")
-        return False
 
-    async def _precharge(self, cfg) -> bool:
-        max_retries = cfg["max_retries"]
-        interval = cfg["precharge_interval"]
-        v_pct = cfg["precharge_voltage_pct"] / 100.0
-        i_pct = cfg["precharge_current_pct"] / 100.0
-        track_current = cfg["precharge_track_current"]
-
-        for attempt in range(1, max_retries + 1):
+    async def _precharge(self) -> bool:
+        attempt = 0
+        while True:
             if self._stop_flag: return False
+            attempt += 1
+            cfg = self.get_config()
+            max_retries = int(cfg.get("max_retries", 20))
+            interval = float(cfg.get("precharge_interval", 0.25))
+            v_pct = float(cfg.get("precharge_voltage_pct", 90.0)) / 100.0
+            i_pct = float(cfg.get("precharge_current_pct", 90.0)) / 100.0
+            track_current = bool(cfg.get("precharge_track_current", False))
+            distortion_pct = float(cfg.get("distortion_pct", 0.0)) if cfg.get("use_distortion") else 0.0
+            if attempt > max_retries:
+                await self._fail(f"precharge did not reach threshold after {max_retries} retries")
+                return False
             self._set_stage(Stage.PRECHARGE, retries=attempt)
             form = self.get_form_data()
-            target_v = float(form.get("prechargeTargetVoltage", 400))
-            target_i = float(form.get("prechargeTargetCurrent", 10))
+            form_v = float(form.get("prechargeTargetVoltage", 400))
+            form_i = float(form.get("prechargeTargetCurrent", 10))
+            target_v, target_i = clamp_and_distort(form_v, form_i, self.get_limits(), distortion_pct)
             msg = self.mh.create_target_values({
                 "batteryStateOfCharge": form.get("batteryStateOfCharge", 45),
                 "chargingState": "preCharge",
@@ -228,6 +293,9 @@ class AutoSequence:
             if self._check_inoperative():
                 await self._fail("PECC reported inoperative during precharge")
                 return False
+            if self._last_status.get("isolationStatus") == "invalid":
+                await self._fail("isolation became invalid during precharge")
+                return False
             mv = self._last_status.get("measuredVoltage")
             mc = self._last_status.get("measuredCurrent")
             v_ok = isinstance(mv, (int, float)) and mv >= target_v * v_pct
@@ -235,25 +303,26 @@ class AutoSequence:
             if v_ok and i_ok:
                 self._log(f"Precharge PASSED on attempt {attempt} (V={mv}, I={mc})")
                 return True
-        await self._fail(f"precharge did not reach threshold after {max_retries} retries")
-        return False
 
-    async def _charge(self, cfg):
-        max_retries = cfg["max_retries"]
-        interval = cfg["charge_interval"]
-        v_pct = cfg["charge_voltage_pct"] / 100.0
-        i_pct = cfg["charge_current_pct"] / 100.0
-        track_current = cfg["charge_track_current"]
-
+    async def _charge(self):
         reached = False
         ramp_attempt = 0
         while True:
             if self._stop_flag:
                 self._set_stage(Stage.IDLE)
                 return
+            cfg = self.get_config()
+            max_retries = int(cfg.get("max_retries", 20))
+            interval = float(cfg.get("charge_interval", 0.25))
+            v_pct = float(cfg.get("charge_voltage_pct", 80.0)) / 100.0
+            i_pct = float(cfg.get("charge_current_pct", 80.0)) / 100.0
+            track_current = bool(cfg.get("charge_track_current", False))
+            distortion_pct = float(cfg.get("distortion_pct", 0.0)) if cfg.get("use_distortion") else 0.0
+
             form = self.get_form_data()
-            target_v = float(form.get("chargeTargetVoltage", 500))
-            target_i = float(form.get("chargeTargetCurrent", 60))
+            form_v = float(form.get("chargeTargetVoltage", 500))
+            form_i = float(form.get("chargeTargetCurrent", 60))
+            target_v, target_i = clamp_and_distort(form_v, form_i, self.get_limits(), distortion_pct)
             msg = self.mh.create_target_values({
                 "batteryStateOfCharge": form.get("batteryStateOfCharge", 78),
                 "chargingState": "charging",
@@ -264,6 +333,9 @@ class AutoSequence:
             await asyncio.sleep(interval)
             if self._check_inoperative():
                 await self._fail("PECC reported inoperative during charge")
+                return
+            if self._last_status.get("isolationStatus") == "invalid":
+                await self._fail("isolation became invalid during charge")
                 return
 
             mv = self._last_status.get("measuredVoltage")

@@ -109,6 +109,9 @@ class UIMainScreen:
 
         self.param_vars: Dict[str, tk.Variable] = {}
         self.auto_config_vars: Dict[str, tk.Variable] = {}
+        # Thread-safe live cache of Auto config — updated via Tk var traces on the
+        # main thread, read by AutoSequence on the asyncio thread.
+        self._auto_config_cache: Dict[str, Any] = dict(AUTO_DEFAULTS)
         self.auto_start_callback: Optional[Callable[[], None]] = None
         self.auto_stop_callback: Optional[Callable[[], None]] = None
         self._auto_running = False
@@ -134,15 +137,26 @@ class UIMainScreen:
         self.automatic_tab  = ttk.Frame(self.notebook)
         self.config_tab     = ttk.Frame(self.notebook)
 
+        self.notebook.add(self.automatic_tab, text="  Automatic  ")
         self.notebook.add(self.controls_tab,  text="  Controls  ")
         self.notebook.add(self.params_tab,    text="  EV Parameters  ")
-        self.notebook.add(self.automatic_tab, text="  Automatic  ")
         self.notebook.add(self.config_tab,    text="  Configuration  ")
 
         self._build_controls_tab()
         self._build_params_tab()
         self._build_automatic_tab()
         self._build_config_tab()
+
+
+        # Wire live config cache: any change to an Auto config var (typed entry
+        # or Reset button) is reflected immediately in the cache that the
+        # auto-sequence reads.
+        for key, var in self.auto_config_vars.items():
+            try:
+                self._auto_config_cache[key] = var.get()
+            except Exception:
+                self._auto_config_cache[key] = AUTO_DEFAULTS[key]
+            var.trace_add("write", lambda *_, k=key, v=var: self._on_auto_config_change(k, v))
 
     # ------------------------------------------------------------------
     # Controls tab
@@ -314,6 +328,7 @@ class UIMainScreen:
         page.columnconfigure(0, weight=2, uniform="auto")
         page.columnconfigure(1, weight=3, uniform="auto")
         page.rowconfigure(0, weight=1)
+        page.rowconfigure(1, weight=1)
 
         # ---- Left: control card ----
         left = ttk.Labelframe(page, text="Automatic Test", style="Card.TLabelframe")
@@ -393,13 +408,74 @@ class UIMainScreen:
         for r in range(3):
             right.rowconfigure(r, weight=1)
 
+        # ---- Row 1 left: Dynamic Limits (from PECC) ----
+        limits_card = ttk.Labelframe(page, text="Dynamic Limits (from PECC)",
+                                     style="Card.TLabelframe")
+        limits_card.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(14, 0))
+        limits_card.columnconfigure(1, weight=1)
+
+        self.auto_lim_v_var     = tk.StringVar(value="—")
+        self.auto_lim_i_var     = tk.StringVar(value="—")
+        self.auto_lim_p_var     = tk.StringVar(value="—")
+        self.auto_lim_dis_i_var = tk.StringVar(value="—")
+        self.auto_lim_dis_p_var = tk.StringVar(value="—")
+
+        limits_rows = [
+            ("Voltage",      self.auto_lim_v_var,     "V"),
+            ("Current",      self.auto_lim_i_var,     "A"),
+            ("Power",        self.auto_lim_p_var,     "W"),
+            ("Discharge I",  self.auto_lim_dis_i_var, "A"),
+            ("Discharge P",  self.auto_lim_dis_p_var, "W"),
+        ]
+        for r, (label, var, unit) in enumerate(limits_rows):
+            ttk.Label(limits_card, text=label, style="CardLabel.TLabel",
+                      foreground=PALETTE["text_muted"]).grid(
+                row=r, column=0, sticky="w", padx=(0, 12), pady=2)
+            ttk.Label(limits_card, textvariable=var, style="CardLabel.TLabel",
+                      font=FONT_MONO).grid(row=r, column=1, sticky="w", pady=2)
+            ttk.Label(limits_card, text=unit, style="CardLabel.TLabel",
+                      foreground=PALETTE["text_muted"]).grid(
+                row=r, column=2, sticky="w", padx=(8, 0), pady=2)
+
+        # ---- Row 1 right: Last Sent ----
+        sent_card = ttk.Labelframe(page, text="Last Sent (Outgoing)",
+                                   style="Card.TLabelframe")
+        sent_card.grid(row=1, column=1, sticky="nsew", padx=(10, 0), pady=(14, 0))
+        sent_card.columnconfigure(1, weight=1)
+
+        self.auto_last_cc_v_var    = tk.StringVar(value="—")
+        self.auto_last_tv_v_var    = tk.StringVar(value="—")
+        self.auto_last_tv_i_var    = tk.StringVar(value="—")
+        self.auto_last_tv_p_var    = tk.StringVar(value="—")
+        self.auto_last_tv_state_var = tk.StringVar(value="—")
+        self.auto_last_tv_soc_var  = tk.StringVar(value="—")
+
+        sent_rows = [
+            ("Cable Check Voltage", self.auto_last_cc_v_var,    "V"),
+            ("Target Voltage",      self.auto_last_tv_v_var,    "V"),
+            ("Target Current",      self.auto_last_tv_i_var,    "A"),
+            ("Power (V × I)",       self.auto_last_tv_p_var,    "kW"),
+            ("Charging State",      self.auto_last_tv_state_var, None),
+            ("Battery SoC",         self.auto_last_tv_soc_var,  "%"),
+        ]
+        for r, (label, var, unit) in enumerate(sent_rows):
+            ttk.Label(sent_card, text=label, style="CardLabel.TLabel",
+                      foreground=PALETTE["text_muted"]).grid(
+                row=r, column=0, sticky="w", padx=(0, 12), pady=2)
+            ttk.Label(sent_card, textvariable=var, style="CardLabel.TLabel",
+                      font=FONT_MONO).grid(row=r, column=1, sticky="w", pady=2)
+            if unit:
+                ttk.Label(sent_card, text=unit, style="CardLabel.TLabel",
+                          foreground=PALETTE["text_muted"]).grid(
+                    row=r, column=2, sticky="w", padx=(8, 0), pady=2)
+
         hint = ttk.Label(
             page,
             text="Tip: full message log lives on the Controls tab. EV Parameter "
                  "changes apply on the next send after you click Update Parameters.",
             style="Muted.TLabel", wraplength=720, justify="left",
         )
-        hint.grid(row=1, column=0, columnspan=2, sticky="we", pady=(14, 0))
+        hint.grid(row=2, column=0, columnspan=2, sticky="we", pady=(14, 0))
 
     # ------------------------------------------------------------------
     # Configuration tab
@@ -442,26 +518,36 @@ class UIMainScreen:
                                     style="Card.TLabelframe")
         thresholds.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(14, 0))
         thresholds.columnconfigure(1, weight=1)
-        add_row(thresholds, 0, "Precharge Voltage", "precharge_voltage_pct", AUTO_DEFAULTS["precharge_voltage_pct"], "%")
-        add_row(thresholds, 1, "Precharge Current", "precharge_current_pct", AUTO_DEFAULTS["precharge_current_pct"], "%")
-        add_row(thresholds, 2, "Charge Voltage",    "charge_voltage_pct",    AUTO_DEFAULTS["charge_voltage_pct"],    "%")
-        add_row(thresholds, 3, "Charge Current",    "charge_current_pct",    AUTO_DEFAULTS["charge_current_pct"],    "%")
+        add_row(thresholds, 0, "Cable Check Voltage", "cable_check_voltage_pct", AUTO_DEFAULTS["cable_check_voltage_pct"], "%")
+        add_row(thresholds, 1, "Precharge Voltage",   "precharge_voltage_pct",   AUTO_DEFAULTS["precharge_voltage_pct"],   "%")
+        add_row(thresholds, 2, "Precharge Current",   "precharge_current_pct",   AUTO_DEFAULTS["precharge_current_pct"],   "%")
+        add_row(thresholds, 3, "Charge Voltage",      "charge_voltage_pct",      AUTO_DEFAULTS["charge_voltage_pct"],      "%")
+        add_row(thresholds, 4, "Charge Current",      "charge_current_pct",      AUTO_DEFAULTS["charge_current_pct"],      "%")
 
-        # Card: retries + current tracking
-        misc = ttk.Labelframe(page, text="Retries & Tracking", style="Card.TLabelframe")
+        # Card: retries + current tracking + distortion
+        misc = ttk.Labelframe(page, text="Retries, Tracking & Distortion",
+                              style="Card.TLabelframe")
         misc.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(14, 0))
         misc.columnconfigure(1, weight=1)
         add_row(misc, 0, "Max retries per stage", "max_retries",
                 AUTO_DEFAULTS["max_retries"], "", var_type=tk.IntVar)
+        add_row(misc, 1, "Current distortion", "distortion_pct",
+                AUTO_DEFAULTS["distortion_pct"], "%")
 
-        pre_track = tk.BooleanVar(value=AUTO_DEFAULTS["precharge_track_current"])
-        chg_track = tk.BooleanVar(value=AUTO_DEFAULTS["charge_track_current"])
+        pre_track     = tk.BooleanVar(value=AUTO_DEFAULTS["precharge_track_current"])
+        chg_track     = tk.BooleanVar(value=AUTO_DEFAULTS["charge_track_current"])
+        use_distortion = tk.BooleanVar(value=AUTO_DEFAULTS["use_distortion"])
         self.auto_config_vars["precharge_track_current"] = pre_track
         self.auto_config_vars["charge_track_current"]    = chg_track
+        self.auto_config_vars["use_distortion"]          = use_distortion
+
         ttk.Checkbutton(misc, text="Track current during Precharge", variable=pre_track).grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(10, 2))
+            row=2, column=0, columnspan=3, sticky="w", pady=(10, 2))
         ttk.Checkbutton(misc, text="Track current during Charge", variable=chg_track).grid(
-            row=2, column=0, columnspan=3, sticky="w")
+            row=3, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(misc, text="Apply current distortion to target sends",
+                        variable=use_distortion).grid(
+            row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
         # Reset button
         reset_row = ttk.Frame(page)
@@ -538,14 +624,18 @@ class UIMainScreen:
         self.auto_start_callback = start_cb
         self.auto_stop_callback = stop_cb
 
+    def _on_auto_config_change(self, key: str, var: tk.Variable):
+        # Trace fires on every keystroke; tolerate partial input (e.g. user
+        # typing "1." mid-edit) by ignoring read errors and keeping the
+        # previous valid value in the cache.
+        try:
+            self._auto_config_cache[key] = var.get()
+        except Exception:
+            pass
+
     def get_auto_config(self) -> Dict[str, Any]:
-        cfg = {}
-        for key, var in self.auto_config_vars.items():
-            try:
-                cfg[key] = var.get()
-            except Exception:
-                cfg[key] = AUTO_DEFAULTS[key]
-        return cfg
+        # Live, thread-safe snapshot of the Auto config cache (plain dict).
+        return dict(self._auto_config_cache)
 
     def set_auto_running(self, running: bool):
         self._auto_running = running
@@ -553,6 +643,40 @@ class UIMainScreen:
             self.auto_btn.configure(text="Stop Charging", style="HeroStop.TButton")
         else:
             self.auto_btn.configure(text="Start Charging", style="Hero.TButton")
+
+    def update_dynamic_limits(self, payload: Dict[str, Any]):
+        def _range(lo_key, hi_key):
+            lo = payload.get(lo_key)
+            hi = payload.get(hi_key)
+            if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+                lo_s = f"{lo:g}"
+                hi_s = f"{hi:g}"
+                return f"{lo_s} – {hi_s}"
+            return "—"
+        self.auto_lim_v_var.set(_range("limitVoltageMin", "limitVoltageMax"))
+        self.auto_lim_i_var.set(_range("limitCurrentMin", "limitCurrentMax"))
+        self.auto_lim_p_var.set(_range("limitPowerMin", "limitPowerMax"))
+        self.auto_lim_dis_i_var.set(_range("limitDischargeCurrentMin", "limitDischargeCurrentMax"))
+        self.auto_lim_dis_p_var.set(_range("limitDischargePowerMin", "limitDischargePowerMax"))
+
+    def update_last_sent(self, message: Dict[str, Any]):
+        kind = message.get("kind")
+        payload = message.get("payload") or {}
+        if kind == "cableCheck":
+            v = payload.get("voltage")
+            self.auto_last_cc_v_var.set(f"{v:.2f}" if isinstance(v, (int, float)) else "—")
+        elif kind == "targetValues":
+            v = payload.get("targetVoltage")
+            i = payload.get("targetCurrent")
+            soc = payload.get("batteryStateOfCharge")
+            self.auto_last_tv_v_var.set(f"{v:.2f}" if isinstance(v, (int, float)) else "—")
+            self.auto_last_tv_i_var.set(f"{i:.2f}" if isinstance(i, (int, float)) else "—")
+            self.auto_last_tv_soc_var.set(f"{soc:.2f}" if isinstance(soc, (int, float)) else "—")
+            self.auto_last_tv_state_var.set(payload.get("chargingState") or "—")
+            if isinstance(v, (int, float)) and isinstance(i, (int, float)):
+                self.auto_last_tv_p_var.set(f"{(v * i) / 1000.0:.2f}")
+            else:
+                self.auto_last_tv_p_var.set("—")
 
     def update_auto_status(self, status: Dict[str, Any]):
         stage = status.get("stage", "Idle")
