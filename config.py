@@ -97,12 +97,15 @@ AUTO_DEFAULTS = {
     "precharge_interval": 2,
     "charge_interval": 2,
     "max_retries": 30,
+    "cable_check_voltage_pct": 90.0,
     "precharge_voltage_pct": 90.0,
     "precharge_current_pct": 90.0,
     "charge_voltage_pct": 80.0,
     "charge_current_pct": 80.0,
     "precharge_track_current": False,
     "charge_track_current": False,
+    "use_distortion": False,
+    "distortion_pct": 5.0,
 }
 
 # Stage colors for the Automatic tab status pill (hex)

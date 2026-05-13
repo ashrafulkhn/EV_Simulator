@@ -1,0 +1,15 @@
+<<<<< {"type": "info", "kind": "dynamicLimits", "payload": {"firmwareVersion": "pe_1.0.2", "manufacturer": "ultrafastchargers_pvt_ltd", "limitVoltageMin": 0, "limitVoltageMax": 1000, "limitCurrentMin": 0, "limitCurrentMax": 200, "limitPowerMin": 0, "limitPowerMax": 130000, "limitDischargeCurrentMin": 0, "limitDischargeCurrentMax": 0, "limitDischargePowerMin": 0, "limitDischargePowerMax": 0, "floatValues": true}}
+
+<<<<< {"kind": "status", "type": "info", "payload": {"measuredVoltage": 0.0, "measuredCurrent": 0.0, "drivenVoltage": 0, "drivenCurrent": 0, "temperature": 0.0, "contactorsStatus": "open", "isolationStatus": "valid", "operationalStatus": "operative"}}
+
+{"type": "request", "kind": "getInput", "sequenceNumber": 2, "payload": {"inputIdentifiers": ["d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "a1", "t1", "t2", "t3", "t4"]}}>>>>> {
+  "kind": "targetValues",
+  "payload": {
+    "batteryStateOfCharge": 10.0,
+    "chargingState": "preCharge",
+    "targetCurrent": 10.0,
+    "targetVoltage": 400.0
+  },
+  "sequenceNumber": 1258,
+  "type": "request"
+}

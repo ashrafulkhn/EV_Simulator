@@ -52,6 +52,7 @@ class EVSimulatorApp:
         # App state
         self.gun_connected = False
         self.vehicle_info_step = 0
+        self._limits: dict = {}
 
         # Asyncio loop in background thread
         self.loop: Optional[asyncio.AbstractEventLoop] = None
@@ -71,6 +72,9 @@ class EVSimulatorApp:
             get_form_data=lambda: self.main_screen.form_data,
             status_cb=lambda s: self._event_queue.put(("auto_status", s)),
             log_cb=lambda m: self._event_queue.put(("log", m)),
+            get_limits=lambda: self._limits,
+            sent_cb=lambda msg: self._event_queue.put(("sent", msg)),
+            get_config=lambda: self.main_screen.get_auto_config(),
         )
         self.main_screen.set_auto_callbacks(self._on_start_auto, self._on_stop_auto)
 
@@ -134,7 +138,7 @@ class EVSimulatorApp:
             "batteryStateOfCharge": form_data.get('batteryStateOfCharge', 45),
             "chargingState": "preCharge",
             "targetCurrent": form_data.get('prechargeTargetCurrent', 10),
-            "targetVoltage": form_data.get('prechargeTargetVoltage', 400)
+            "targetVoltage": form_data.get('prechargeTargetVoltage', 400),
         })
         self._send_message(message)
 
@@ -144,7 +148,7 @@ class EVSimulatorApp:
             "batteryStateOfCharge": form_data.get('batteryStateOfCharge', 78.0),
             "chargingState": "charging",
             "targetCurrent": form_data.get('chargeTargetCurrent', 60),
-            "targetVoltage": form_data.get('chargeTargetVoltage', 500)
+            "targetVoltage": form_data.get('chargeTargetVoltage', 500),
         })
         self._send_message(message)
 
@@ -163,11 +167,11 @@ class EVSimulatorApp:
         if self.auto_sequence.is_running():
             return
         # Refresh form data from Tk vars on the main thread so the sequence
-        # reads from a thread-safe snapshot.
+        # reads from a thread-safe snapshot. (Auto config is already kept
+        # live via Tk var traces; no snapshot needed.)
         self.main_screen.get_form_data()
-        cfg = self.main_screen.get_auto_config()
         if self.loop:
-            self.auto_sequence.start(self.loop, cfg)
+            self.auto_sequence.start(self.loop)
             self.main_screen.set_auto_running(True)
 
     def _on_stop_auto(self):
@@ -180,8 +184,17 @@ class EVSimulatorApp:
                 asyncio.run_coroutine_threadsafe(self.ws_handler.send_message(message), self.loop)
             formatted_message = self.message_handler.format_message_for_log(message, "sent")
             self._add_log_message(formatted_message)
+            self._track_outgoing(message)
         else:
             self._add_log_message("ERROR: Not connected to WebSocket")
+
+    def _track_outgoing(self, message: dict):
+        kind = message.get("kind")
+        if kind in ("targetValues", "cableCheck"):
+            try:
+                self.main_screen.update_last_sent(message)
+            except Exception:
+                pass
 
     def _dispatch_incoming(self, raw: str):
         try:
@@ -190,8 +203,18 @@ class EVSimulatorApp:
             return
         if not isinstance(parsed, dict):
             return
-        if parsed.get("type") == "info" and parsed.get("kind") == "status":
-            self.auto_sequence.on_status(parsed.get("payload") or {})
+        if parsed.get("type") != "info":
+            return
+        kind = parsed.get("kind")
+        payload = parsed.get("payload") or {}
+        if kind == "status":
+            self.auto_sequence.on_status(payload)
+        elif kind == "dynamicLimits":
+            self._limits = dict(payload)
+            try:
+                self.main_screen.update_dynamic_limits(payload)
+            except Exception:
+                pass
 
     def _add_log_message(self, message: str):
         # Ensure UI update happens in Tk main thread
@@ -213,8 +236,15 @@ class EVSimulatorApp:
                     self.connection_screen.update_connection_status(connected, "")
                     if not connected:
                         self._add_log_message("INFO: Disconnected")
+                        self._limits = {}
+                        try:
+                            self.main_screen.update_dynamic_limits({})
+                        except Exception:
+                            pass
                 elif event == "log":
                     self._add_log_message(payload)
+                elif event == "sent":
+                    self._track_outgoing(payload)
                 elif event == "auto_status":
                     self.main_screen.update_auto_status(payload)
                     stage = payload.get("stage")
